@@ -32,7 +32,7 @@ impl Action for Connect {
     }
 
     async fn perform(&self, ctx: Ctx) -> Result<(), ActionError> {
-        let span = span!(tracing::Level::INFO, "Connecting");
+        let span = span!(tracing::Level::INFO, "connect");
         let _enter = span.enter();
 
         event!(tracing::Level::INFO, "Connecting to {}", self.to);

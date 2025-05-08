@@ -1,16 +1,13 @@
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
-use tokio::{
-    net::{TcpListener, TcpStream},
-    sync::Mutex,
-};
+use tokio::{net::TcpStream, sync::Mutex};
 use tracing::{event, span};
 
 use crate::action::Action;
 
 pub struct NodeContext {
     pub tcp_streams: Mutex<HashMap<SocketAddr, TcpStream>>,
-    pub tcp_listeners: Mutex<HashMap<SocketAddr, TcpListener>>,
+    pub bind_tasks: Mutex<HashMap<SocketAddr, tokio::task::JoinHandle<()>>>,
 }
 
 pub type Ctx = Arc<NodeContext>;
@@ -28,7 +25,7 @@ impl Node {
             actions: Vec::new(),
             ctx: Arc::new(NodeContext {
                 tcp_streams: Mutex::new(HashMap::new()),
-                tcp_listeners: Mutex::new(HashMap::new()),
+                bind_tasks: Mutex::new(HashMap::new()),
             }),
         }
     }
