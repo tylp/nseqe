@@ -45,7 +45,7 @@ impl Action for Sleep {
     }
 
     async fn perform(&self, _ctx: Ctx) -> Result<(), ActionError> {
-        let span = span!(tracing::Level::INFO, "sleeping");
+        let span = span!(tracing::Level::INFO, "sleep");
         let _enter = span.enter();
 
         event!(tracing::Level::INFO, "Sleeping for {}ms", self.duration_ms);

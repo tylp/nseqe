@@ -25,7 +25,7 @@ impl Action for Bind {
     }
 
     async fn perform(&self, ctx: Ctx) -> Result<(), ActionError> {
-        let span = span!(tracing::Level::INFO, "binding");
+        let span = span!(tracing::Level::INFO, "bind");
         let _guard = span.enter();
 
         event!(tracing::Level::INFO, "Binding to {}", self.to);
@@ -40,7 +40,7 @@ impl Action for Bind {
         let to_clone = self.to;
 
         let bind_handle = tokio::spawn(async move {
-            listen(listener, to_clone).await;
+            accept(listener, to_clone).await;
         });
 
         ctx.bind_tasks.lock().await.insert(self.to, bind_handle);
@@ -57,17 +57,18 @@ impl Action for Bind {
 
 /// Listens for incoming connections on the given listener
 /// and processes each connection in a separate task.
-async fn listen(listener: tokio::net::TcpListener, addr: std::net::SocketAddr) {
+async fn accept(listener: tokio::net::TcpListener, addr: std::net::SocketAddr) {
     let binded_addr = addr.to_string();
     let _ = tokio::spawn(async move {
         loop {
+            let span = span!(tracing::Level::INFO, "accept");
+            let _guard = span.enter();
             match listener.accept().await {
                 Ok((socket, addr)) => {
                     event!(tracing::Level::INFO, "Accepted connection from {}", addr);
                     tokio::spawn(async move {
                         process_socket(socket).await;
                     });
-                    event!(tracing::Level::INFO, "Connection closed from {}", addr);
                 }
                 Err(e) => {
                     event!(tracing::Level::ERROR, "Error accepting connection: {}", e);
@@ -84,12 +85,12 @@ async fn listen(listener: tokio::net::TcpListener, addr: std::net::SocketAddr) {
 async fn process_socket(mut socket: tokio::net::TcpStream) {
     let mut buf = vec![0; 1024];
     loop {
-        let span = span!(tracing::Level::INFO, "socket-read");
+        let span = span!(tracing::Level::INFO, "process-socket");
         let _guard = span.enter();
 
         match socket.read(&mut buf).await {
             Ok(0) => {
-                event!(tracing::Level::INFO, "Connection closed");
+                event!(tracing::Level::INFO, "Buffer is empty, closing connection");
                 break;
             }
             Ok(n) => {

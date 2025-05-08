@@ -43,12 +43,12 @@ impl Node {
 
     pub async fn start(&mut self) {
         for action in self.actions.drain(..) {
-            let span = span!(tracing::Level::INFO, "Action");
+            let span = span!(tracing::Level::INFO, "node");
             let _enter = span.enter();
             match action.perform(self.ctx.clone()).await {
                 Ok(_) => event!(
                     tracing::Level::INFO,
-                    "Action {} performed successfully",
+                    "[OK] Action {} performed successfully",
                     action.name()
                 ),
                 Err(e) => event!(tracing::Level::ERROR, "Error performing action: {}", e),

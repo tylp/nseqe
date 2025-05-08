@@ -3,17 +3,27 @@ use crate::{
     node::Ctx,
 };
 use std::time::Duration;
+use tokio::net::TcpSocket;
 use tracing::{event, span};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Connect {
+    from: std::net::SocketAddr,
     to: std::net::SocketAddr,
     timeout_ms: u64,
 }
 
 impl Connect {
-    pub fn new(to: std::net::SocketAddr, timeout_ms: u64) -> Self {
-        Connect { to, timeout_ms }
+    pub fn new(from: std::net::SocketAddr, to: std::net::SocketAddr, timeout_ms: u64) -> Self {
+        Connect {
+            from,
+            to,
+            timeout_ms,
+        }
+    }
+
+    pub fn from(&self) -> &std::net::SocketAddr {
+        &self.from
     }
 
     pub fn to(&self) -> &std::net::SocketAddr {
@@ -35,10 +45,24 @@ impl Action for Connect {
         let span = span!(tracing::Level::INFO, "connect");
         let _enter = span.enter();
 
-        event!(tracing::Level::INFO, "Connecting to {}", self.to);
+        event!(
+            tracing::Level::INFO,
+            "Connecting from {} to {}",
+            self.from,
+            self.to
+        );
+
+        let socket = TcpSocket::new_v4().map_err(|error| {
+            ActionError::ConnectError(format!("Error creating socket for {} ({})", self.to, error))
+        })?;
+
+        socket.bind(self.from).map_err(|error| {
+            ActionError::ConnectError(format!("Error binding socket to {} ({})", self.from, error))
+        })?;
+
         let stream = tokio::time::timeout(
             Duration::from_millis(self.timeout_ms),
-            tokio::net::TcpStream::connect(self.to),
+            socket.connect(self.to),
         )
         .await
         .map_err(|_| {
