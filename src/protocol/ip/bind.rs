@@ -6,6 +6,7 @@ use crate::{
     node::Ctx,
 };
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct Bind {
     to: std::net::SocketAddr,
 }

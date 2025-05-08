@@ -24,6 +24,7 @@ pub enum ActionError {
     WaitError,
 }
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct Sleep {
     duration_ms: u64,
 }
