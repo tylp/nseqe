@@ -1,9 +1,12 @@
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
 use tokio::io::AsyncReadExt;
 use tracing::{Instrument, event, span};
 
 use crate::{
     action::{Action, ActionError},
-    node::Ctx,
+    node::{Ctx, ReceivedMessage, ReceivedMessages},
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -40,11 +43,9 @@ impl Action for Bind {
         let listener = socket.listen(1024).map_err(|_| ActionError::BindError)?;
         let to_clone = self.to;
 
-        let bind_handle = tokio::spawn(async move {
-            accept(listener, to_clone).await;
+        let _bind_handle = tokio::spawn(async move {
+            accept(listener, to_clone, ctx).await;
         });
-
-        ctx.bind_tasks.lock().await.insert(self.to, bind_handle);
 
         event!(
             tracing::Level::INFO,
@@ -58,8 +59,9 @@ impl Action for Bind {
 
 /// Listens for incoming connections on the given listener
 /// and processes each connection in a separate task.
-async fn accept(listener: tokio::net::TcpListener, addr: std::net::SocketAddr) {
+async fn accept(listener: tokio::net::TcpListener, addr: std::net::SocketAddr, ctx: Ctx) {
     let binded_addr = addr.to_string();
+    let received_messages = ctx.received_messages.clone();
     let _ = tokio::spawn(async move {
         loop {
             let span = span!(tracing::Level::INFO, "accept");
@@ -67,8 +69,9 @@ async fn accept(listener: tokio::net::TcpListener, addr: std::net::SocketAddr) {
             match listener.accept().await {
                 Ok((socket, addr)) => {
                     event!(tracing::Level::INFO, "Accepted connection from {}", addr);
+                    let received_messages = received_messages.clone();
                     tokio::spawn(async move {
-                        process_socket(socket).await;
+                        process_socket(socket, received_messages).await;
                     });
                 }
                 Err(e) => {
@@ -83,7 +86,10 @@ async fn accept(listener: tokio::net::TcpListener, addr: std::net::SocketAddr) {
 
 /// Processes the incoming socket connection.
 /// Reads data from the socket and handles it accordingly.
-async fn process_socket(mut socket: tokio::net::TcpStream) {
+async fn process_socket(
+    mut socket: tokio::net::TcpStream,
+    received_messages: Arc<Mutex<ReceivedMessages>>,
+) {
     let mut buf = vec![0; 1024];
     loop {
         let span = span!(tracing::Level::INFO, "process-socket");
@@ -96,7 +102,20 @@ async fn process_socket(mut socket: tokio::net::TcpStream) {
             }
             Ok(n) => {
                 event!(tracing::Level::INFO, "Read {} bytes", n);
-                // Process the data
+                let mut messages = received_messages.lock().await;
+                let addr = socket.peer_addr().unwrap();
+
+                let received_message = ReceivedMessage {
+                    instant: tokio::time::Instant::now(),
+                    from: addr,
+                    to: socket.local_addr().unwrap(),
+                    buffer: buf[..n].to_vec(),
+                };
+
+                messages
+                    .entry(addr)
+                    .or_insert_with(Vec::new)
+                    .push(received_message);
             }
             Err(e) => {
                 event!(tracing::Level::ERROR, "Error reading from socket: {}", e);

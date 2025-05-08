@@ -5,6 +5,7 @@ use tracing::{event, span};
 
 use crate::action::Action;
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct Send {
     from: SocketAddr,
     to: SocketAddr,
@@ -49,26 +50,20 @@ impl Action for Send {
 
         // Check if a stream is already connected to the destination
         let mut streams = ctx.tcp_streams.lock().await;
-        let destination = self.to;
-
-        if let Some(stream) = streams.get_mut(&destination) {
+        if let Some(stream) = streams.get_mut(&self.to) {
             // Send the data
             if let Err(e) = stream.write_all(&self.buffer).await {
                 event!(
                     tracing::Level::ERROR,
                     "Error sending data to {}: {}",
-                    destination,
+                    self.to,
                     e
                 );
             } else {
-                event!(tracing::Level::INFO, "Data sent to {}", destination);
+                event!(tracing::Level::INFO, "Data sent to {}", self.to);
             }
         } else {
-            event!(
-                tracing::Level::ERROR,
-                "No stream connected to {}",
-                destination
-            );
+            event!(tracing::Level::ERROR, "No stream connected to {}", self.to);
         }
         Ok(())
     }

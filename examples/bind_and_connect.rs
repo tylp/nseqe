@@ -26,6 +26,9 @@ async fn main() {
     node.add_action(bind_action);
     node.add_action(sleep_action.clone());
     node.add_action(connection_action);
+    node.add_action(send_action.clone());
+    node.add_action(send_action.clone());
+    node.add_action(send_action.clone());
     node.add_action(send_action);
     node.add_action(sleep_action);
     node.start().await;

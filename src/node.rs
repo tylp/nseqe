@@ -1,13 +1,23 @@
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
-use tokio::{net::TcpStream, sync::Mutex};
+use tokio::{net::TcpStream, sync::Mutex, time::Instant};
 use tracing::{event, span};
 
 use crate::action::Action;
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct ReceivedMessage {
+    pub instant: Instant,
+    pub from: SocketAddr,
+    pub to: SocketAddr,
+    pub buffer: Vec<u8>,
+}
+
+pub type ReceivedMessages = HashMap<SocketAddr, Vec<ReceivedMessage>>;
+
 pub struct NodeContext {
     pub tcp_streams: Mutex<HashMap<SocketAddr, TcpStream>>,
-    pub bind_tasks: Mutex<HashMap<SocketAddr, tokio::task::JoinHandle<()>>>,
+    pub received_messages: Arc<Mutex<ReceivedMessages>>,
 }
 
 pub type Ctx = Arc<NodeContext>;
@@ -25,7 +35,7 @@ impl Node {
             actions: Vec::new(),
             ctx: Arc::new(NodeContext {
                 tcp_streams: Mutex::new(HashMap::new()),
-                bind_tasks: Mutex::new(HashMap::new()),
+                received_messages: Arc::new(Mutex::new(HashMap::new())),
             }),
         }
     }
@@ -54,5 +64,13 @@ impl Node {
                 Err(e) => event!(tracing::Level::ERROR, "Error performing action: {}", e),
             }
         }
+
+        event!(tracing::Level::INFO, "All actions performed");
+        event!(tracing::Level::INFO, "Node {} finished", self.name);
+        event!(
+            tracing::Level::INFO,
+            "Received messages: {:?}",
+            self.ctx.received_messages.lock().await
+        );
     }
 }
