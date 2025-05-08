@@ -61,7 +61,7 @@ impl Node {
                     "[OK] Action {} performed successfully",
                     action.name()
                 ),
-                Err(e) => event!(tracing::Level::ERROR, "Error performing action: {}", e),
+                Err(e) => event!(tracing::Level::ERROR, "Error performing action: {:?}", e),
             }
         }
 

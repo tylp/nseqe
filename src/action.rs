@@ -17,7 +17,7 @@ pub enum ActionError {
     #[error("Bind error")]
     BindError,
     #[error("Send error")]
-    SendError,
+    SendError(String),
     #[error("Sleep error")]
     SleepError,
     #[error("Wait error")]

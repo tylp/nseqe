@@ -1,20 +1,32 @@
 use std::net::SocketAddr;
 
-use tokio::io::AsyncWriteExt;
+use tokio::{io::AsyncWriteExt, net::UdpSocket};
 use tracing::{event, span};
 
 use crate::action::Action;
 
 #[derive(Debug, PartialEq, Clone)]
+pub enum SendMode {
+    Unicast,
+    Broadcast,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub struct Send {
+    mode: SendMode,
     from: SocketAddr,
     to: SocketAddr,
     buffer: Vec<u8>,
 }
 
 impl Send {
-    pub fn new(from: SocketAddr, to: SocketAddr, buffer: Vec<u8>) -> Self {
-        Send { from, to, buffer }
+    pub fn new(mode: SendMode, from: SocketAddr, to: SocketAddr, buffer: Vec<u8>) -> Self {
+        Send {
+            mode,
+            from,
+            to,
+            buffer,
+        }
     }
 
     pub fn from(&self) -> &SocketAddr {
@@ -42,29 +54,48 @@ impl Action for Send {
 
         event!(
             tracing::Level::INFO,
-            "Sending {} bytes from {} to {}",
+            "Sending {} bytes from {} to {} in {:?} mode",
             self.buffer.len(),
             self.from,
-            self.to
+            self.to,
+            self.mode
         );
 
-        // Check if a stream is already connected to the destination
-        let mut streams = ctx.tcp_streams.lock().await;
-        if let Some(stream) = streams.get_mut(&self.to) {
-            // Send the data
-            if let Err(e) = stream.write_all(&self.buffer).await {
-                event!(
-                    tracing::Level::ERROR,
-                    "Error sending data to {}: {}",
-                    self.to,
-                    e
-                );
-            } else {
-                event!(tracing::Level::INFO, "Data sent to {}", self.to);
+        match self.mode {
+            SendMode::Unicast => {
+                // Check if a stream is already connected to the destination
+                let mut streams = ctx.tcp_streams.lock().await;
+                if let Some(stream) = streams.get_mut(&self.to) {
+                    // Send the data
+                    if let Err(e) = stream.write_all(&self.buffer).await {
+                        event!(
+                            tracing::Level::ERROR,
+                            "Error sending data to {}: {}",
+                            self.to,
+                            e
+                        );
+                    } else {
+                        event!(tracing::Level::INFO, "Data sent to {}", self.to);
+                    }
+                } else {
+                    event!(tracing::Level::ERROR, "No stream connected to {}", self.to);
+                }
             }
-        } else {
-            event!(tracing::Level::ERROR, "No stream connected to {}", self.to);
+            SendMode::Broadcast => {
+                let socket: UdpSocket = UdpSocket::bind(self.from).await.map_err(|_| {
+                    crate::action::ActionError::SendError("Failed to bind udp socket".into())
+                })?;
+
+                socket.set_broadcast(true).map_err(|_| {
+                    crate::action::ActionError::SendError("Failed to set broadcast".into())
+                })?;
+
+                socket.send_to(self.buffer(), self.to).await.map_err(|_| {
+                    crate::action::ActionError::SendError("Failed to send udp message".into())
+                })?;
+            }
         }
+
         Ok(())
     }
 }
