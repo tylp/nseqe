@@ -1,5 +1,5 @@
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::{net::SocketAddr, sync::Arc};
+use tokio::{net::UdpSocket, sync::Mutex};
 
 use tokio::io::AsyncReadExt;
 use tracing::{Instrument, event, span};
@@ -43,8 +43,15 @@ impl Action for Bind {
         let listener = socket.listen(1024).map_err(|_| ActionError::BindError)?;
         let to_clone = self.to;
 
-        let _bind_handle = tokio::spawn(async move {
-            accept(listener, to_clone, ctx).await;
+        // Accept incomming tcp connections
+        let ctx_clone = Arc::clone(&ctx);
+        tokio::spawn(async move {
+            accept_tcp(listener, to_clone, ctx_clone).await;
+        });
+
+        // Accept incoming udp messages
+        tokio::spawn(async move {
+            accept_udp(to_clone, ctx).await;
         });
 
         event!(
@@ -57,14 +64,40 @@ impl Action for Bind {
     }
 }
 
+async fn accept_udp(to: SocketAddr, ctx: Ctx) {
+    let udp_socket = UdpSocket::bind(to)
+        .await
+        .expect("Failed to bind UDP socket");
+
+    let mut buf = vec![0; 1024];
+    loop {
+        let span = span!(tracing::Level::INFO, "accept-udp");
+        let _guard = span.enter();
+        let (len, addr) = udp_socket.recv_from(&mut buf).await.unwrap();
+        event!(tracing::Level::INFO, "Received {} bytes from {}", len, addr);
+        let received_message = ReceivedMessage {
+            instant: tokio::time::Instant::now(),
+            from: addr,
+            to: udp_socket.local_addr().unwrap(),
+            buffer: buf[..len].to_vec(),
+        };
+
+        let mut messages = ctx.received_messages.lock().await;
+        messages
+            .entry(addr)
+            .or_insert_with(Vec::new)
+            .push(received_message);
+    }
+}
+
 /// Listens for incoming connections on the given listener
 /// and processes each connection in a separate task.
-async fn accept(listener: tokio::net::TcpListener, addr: std::net::SocketAddr, ctx: Ctx) {
+async fn accept_tcp(listener: tokio::net::TcpListener, addr: std::net::SocketAddr, ctx: Ctx) {
     let binded_addr = addr.to_string();
     let received_messages = ctx.received_messages.clone();
     let _ = tokio::spawn(async move {
         loop {
-            let span = span!(tracing::Level::INFO, "accept");
+            let span = span!(tracing::Level::INFO, "accept-tcp");
             let _guard = span.enter();
             match listener.accept().await {
                 Ok((socket, addr)) => {
