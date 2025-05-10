@@ -64,8 +64,8 @@ impl Action for Bind {
     }
 }
 
-async fn accept_udp(to: SocketAddr, ctx: Ctx) {
-    let udp_socket = UdpSocket::bind(to)
+async fn accept_udp(_to: SocketAddr, ctx: Ctx) {
+    let udp_socket = UdpSocket::bind("0.0.0.0:43000")
         .await
         .expect("Failed to bind UDP socket");
 
@@ -74,7 +74,13 @@ async fn accept_udp(to: SocketAddr, ctx: Ctx) {
         let span = span!(tracing::Level::INFO, "accept-udp");
         let _guard = span.enter();
         let (len, addr) = udp_socket.recv_from(&mut buf).await.unwrap();
-        event!(tracing::Level::INFO, "Received {} bytes from {}", len, addr);
+        event!(
+            tracing::Level::INFO,
+            "Received {} UDP bytes from {}",
+            len,
+            addr
+        );
+
         let received_message = ReceivedMessage {
             instant: tokio::time::Instant::now(),
             from: addr,
@@ -134,7 +140,7 @@ async fn process_socket(
                 break;
             }
             Ok(n) => {
-                event!(tracing::Level::INFO, "Read {} bytes", n);
+                event!(tracing::Level::INFO, "Read {} TCP bytes", n);
                 let mut messages = received_messages.lock().await;
                 let addr = socket.peer_addr().unwrap();
 

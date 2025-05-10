@@ -90,8 +90,14 @@ impl Action for Send {
                     crate::action::ActionError::SendError("Failed to set broadcast".into())
                 })?;
 
-                socket.send_to(self.buffer(), self.to).await.map_err(|_| {
-                    crate::action::ActionError::SendError("Failed to send udp message".into())
+                socket.send_to(self.buffer(), self.to).await.map_err(|e| {
+                    event!(
+                        tracing::Level::ERROR,
+                        "Error sending broadcast data to {}: {}",
+                        self.to,
+                        e
+                    );
+                    crate::action::ActionError::SendError(e.to_string())
                 })?;
             }
         }

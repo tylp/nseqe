@@ -26,18 +26,15 @@ async fn main() {
 
     let send_broadcast_action = Send::new(
         SendMode::Broadcast,
-        "127.0.0.1:0".parse().unwrap(),
-        "127.0.0.255:0".parse().unwrap(),
+        "0.0.0.0:0".parse().unwrap(),
+        "127.255.255.255:43000".parse().unwrap(),
         vec![1, 2, 3, 4],
     );
 
     node.add_action(bind_action);
     node.add_action(sleep_action.clone());
-    node.add_action(connection_action);
     node.add_action(send_broadcast_action);
-    node.add_action(send_unicast_action.clone());
-    node.add_action(send_unicast_action.clone());
-    node.add_action(send_unicast_action.clone());
+    node.add_action(connection_action);
     node.add_action(send_unicast_action);
     node.add_action(sleep_action);
     node.start().await;
