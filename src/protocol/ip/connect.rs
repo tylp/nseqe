@@ -1,6 +1,6 @@
 use crate::{
     action::{Action, ActionError},
-    node::Ctx,
+    node::{ConnectEvent, Ctx},
 };
 use std::time::Duration;
 use tokio::net::TcpSocket;
@@ -79,7 +79,17 @@ impl Action for Connect {
         })?;
 
         event!(tracing::Level::INFO, "Connected to {}", self.to);
-        ctx.tcp_streams.lock().await.insert(self.to, stream);
+        ctx.lock().await.tcp_streams.insert(self.to, stream);
+
+        let connect_event = ConnectEvent {
+            instant: tokio::time::Instant::now(),
+            from: self.from,
+            to: self.to,
+        };
+
+        // Store the connect event in the context and signal every task waiting for it
+        ctx.lock().await.connect_events.push(connect_event);
+        ctx.lock().await.connect_notifier.notify_waiters();
 
         Ok(())
     }

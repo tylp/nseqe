@@ -1,41 +1,92 @@
 use nse::Node;
 use nse::action::Sleep;
-use nse::protocol::ip::{Bind, Connect, Send, SendMode};
+use nse::protocol::ip::{Bind, Connect, ConnectPredicate, Send, SendMode, Wait, WaitEvent};
+use tokio::task::JoinSet;
 
 #[tokio::main]
 async fn main() {
     // Initialize tracing
     tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
+        .with_max_level(tracing::Level::DEBUG)
         .init();
 
-    let mut node = Node::new("test_node");
-    let bind_action = Bind::new("127.0.0.1:3000".parse().unwrap());
+    let mut node_1 = create_node_1();
+    let mut node_2 = create_node_2();
+
+    let mut set = JoinSet::new();
+
+    set.spawn(async move {
+        node_1.start().await;
+    });
+
+    set.spawn(async move {
+        node_2.start().await;
+    });
+
+    while let Some(res) = set.join_next().await {
+        match res {
+            Ok(()) => {
+                tracing::info!("Node finished successfully");
+            }
+            Err(e) => {
+                tracing::error!("Node failed: {:?}", e);
+            }
+        }
+    }
+}
+
+fn create_node_1() -> Node {
+    let mut node = Node::new("test-node-1");
+    let bind_action = Bind::new("192.168.1.10:3000".parse().unwrap());
     let sleep_action = Sleep::new(1000);
     let connection_action = Connect::new(
-        "127.0.0.1:4000".parse().unwrap(),
-        "127.0.0.1:3000".parse().unwrap(),
+        "192.168.1.10:0".parse().unwrap(),
+        "192.168.1.11:4000".parse().unwrap(),
         1000,
     );
     let send_unicast_action = Send::new(
         SendMode::Unicast,
-        "127.0.0.1:4000".parse().unwrap(),
-        "127.0.0.1:3000".parse().unwrap(),
+        "192.168.1.10:3000".parse().unwrap(),
+        "192.168.1.11:4000".parse().unwrap(),
         vec![1, 2, 3, 4],
     );
 
     let send_broadcast_action = Send::new(
         SendMode::Broadcast,
-        "0.0.0.0:0".parse().unwrap(),
-        "127.255.255.255:43000".parse().unwrap(),
+        "192.168.1.10:0".parse().unwrap(),
+        "192.168.1.255:49999".parse().unwrap(),
         vec![1, 2, 3, 4],
     );
+
+    let wait_action = Wait::new(WaitEvent::Connection(ConnectPredicate::new(
+        "192.168.1.11:0".parse().unwrap(),
+        "192.168.1.10:3000".parse().unwrap(),
+    )));
 
     node.add_action(bind_action);
     node.add_action(sleep_action.clone());
     node.add_action(send_broadcast_action);
+    node.add_action(wait_action);
     node.add_action(connection_action);
     node.add_action(send_unicast_action);
     node.add_action(sleep_action);
-    node.start().await;
+
+    node
+}
+
+fn create_node_2() -> Node {
+    let mut node = Node::new("test-node-2");
+    let bind_action = Bind::new("192.168.1.11:4000".parse().unwrap());
+    let sleep_action = Sleep::new(5000);
+    let connection_action = Connect::new(
+        "192.168.1.11:0".parse().unwrap(),
+        "192.168.1.10:3000".parse().unwrap(),
+        1000,
+    );
+
+    node.add_action(bind_action);
+    node.add_action(sleep_action);
+    node.add_action(connection_action);
+
+    node
 }

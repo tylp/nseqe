@@ -1,26 +1,46 @@
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
-use tokio::{net::TcpStream, sync::Mutex, time::Instant};
+use tokio::{
+    net::TcpStream,
+    sync::{Mutex, Notify},
+    time::Instant,
+};
 use tracing::{event, span};
 
 use crate::action::Action;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct ReceivedMessage {
+pub struct ReceiveEvent {
     pub instant: Instant,
     pub from: SocketAddr,
     pub to: SocketAddr,
     pub buffer: Vec<u8>,
 }
 
-pub type ReceivedMessages = HashMap<SocketAddr, Vec<ReceivedMessage>>;
-
-pub struct NodeContext {
-    pub tcp_streams: Mutex<HashMap<SocketAddr, TcpStream>>,
-    pub received_messages: Arc<Mutex<ReceivedMessages>>,
+pub struct SendEvent {
+    pub instant: Instant,
+    pub from: SocketAddr,
+    pub to: SocketAddr,
+    pub buffer: Vec<u8>,
 }
 
-pub type Ctx = Arc<NodeContext>;
+pub struct ConnectEvent {
+    pub instant: Instant,
+    pub from: SocketAddr,
+    pub to: SocketAddr,
+}
+
+pub type ReceivedMessages = HashMap<SocketAddr, Vec<ReceiveEvent>>;
+
+pub struct NodeContext {
+    pub tcp_streams: HashMap<SocketAddr, TcpStream>,
+    pub receive_events: ReceivedMessages,
+    pub send_events: Vec<SendEvent>,
+    pub connect_events: Vec<ConnectEvent>,
+    pub connect_notifier: Arc<Notify>,
+}
+
+pub type Ctx = Arc<Mutex<NodeContext>>;
 
 pub struct Node {
     name: String,
@@ -33,10 +53,13 @@ impl Node {
         Node {
             name: name.to_string(),
             actions: Vec::new(),
-            ctx: Arc::new(NodeContext {
-                tcp_streams: Mutex::new(HashMap::new()),
-                received_messages: Arc::new(Mutex::new(HashMap::new())),
-            }),
+            ctx: Arc::new(Mutex::new(NodeContext {
+                tcp_streams: HashMap::new(),
+                receive_events: HashMap::new(),
+                send_events: Vec::new(),
+                connect_events: Vec::new(),
+                connect_notifier: Arc::new(Notify::new()),
+            })),
         }
     }
 
@@ -70,7 +93,7 @@ impl Node {
         event!(
             tracing::Level::INFO,
             "Received messages: {:?}",
-            self.ctx.received_messages.lock().await
+            self.ctx.lock().await.receive_events
         );
     }
 }

@@ -1,12 +1,13 @@
 use std::{net::SocketAddr, sync::Arc};
-use tokio::{net::UdpSocket, sync::Mutex};
+use tokio::net::UdpSocket;
 
 use tokio::io::AsyncReadExt;
 use tracing::{Instrument, event, span};
 
+use crate::node::ConnectEvent;
 use crate::{
     action::{Action, ActionError},
-    node::{Ctx, ReceivedMessage, ReceivedMessages},
+    node::{Ctx, ReceiveEvent},
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -64,8 +65,17 @@ impl Action for Bind {
     }
 }
 
-async fn accept_udp(_to: SocketAddr, ctx: Ctx) {
-    let udp_socket = UdpSocket::bind("0.0.0.0:43000")
+async fn accept_udp(to: SocketAddr, ctx: Ctx) {
+    let ip = to.ip();
+    let port = 49999;
+
+    event!(
+        tracing::Level::INFO,
+        "Binding UDP socket to {}:{}",
+        ip,
+        port
+    );
+    let udp_socket = UdpSocket::bind(format!("{}:{}", ip, port))
         .await
         .expect("Failed to bind UDP socket");
 
@@ -81,15 +91,16 @@ async fn accept_udp(_to: SocketAddr, ctx: Ctx) {
             addr
         );
 
-        let received_message = ReceivedMessage {
+        let received_message = ReceiveEvent {
             instant: tokio::time::Instant::now(),
             from: addr,
             to: udp_socket.local_addr().unwrap(),
             buffer: buf[..len].to_vec(),
         };
 
-        let mut messages = ctx.received_messages.lock().await;
-        messages
+        ctx.lock()
+            .await
+            .receive_events
             .entry(addr)
             .or_insert_with(Vec::new)
             .push(received_message);
@@ -100,7 +111,6 @@ async fn accept_udp(_to: SocketAddr, ctx: Ctx) {
 /// and processes each connection in a separate task.
 async fn accept_tcp(listener: tokio::net::TcpListener, addr: std::net::SocketAddr, ctx: Ctx) {
     let binded_addr = addr.to_string();
-    let received_messages = ctx.received_messages.clone();
     let _ = tokio::spawn(async move {
         loop {
             let span = span!(tracing::Level::INFO, "accept-tcp");
@@ -108,9 +118,18 @@ async fn accept_tcp(listener: tokio::net::TcpListener, addr: std::net::SocketAdd
             match listener.accept().await {
                 Ok((socket, addr)) => {
                     event!(tracing::Level::INFO, "Accepted connection from {}", addr);
-                    let received_messages = received_messages.clone();
+
+                    // Store the event in the context and signal every task waiting for it
+                    ctx.lock().await.connect_events.push(ConnectEvent {
+                        instant: tokio::time::Instant::now(),
+                        from: addr,
+                        to: socket.local_addr().unwrap(),
+                    });
+                    ctx.lock().await.connect_notifier.notify_waiters();
+
+                    let ctx_clone = ctx.clone();
                     tokio::spawn(async move {
-                        process_socket(socket, received_messages).await;
+                        process_socket(socket, ctx_clone).await;
                     });
                 }
                 Err(e) => {
@@ -125,10 +144,7 @@ async fn accept_tcp(listener: tokio::net::TcpListener, addr: std::net::SocketAdd
 
 /// Processes the incoming socket connection.
 /// Reads data from the socket and handles it accordingly.
-async fn process_socket(
-    mut socket: tokio::net::TcpStream,
-    received_messages: Arc<Mutex<ReceivedMessages>>,
-) {
+async fn process_socket(mut socket: tokio::net::TcpStream, ctx: Ctx) {
     let mut buf = vec![0; 1024];
     loop {
         let span = span!(tracing::Level::INFO, "process-socket");
@@ -141,10 +157,10 @@ async fn process_socket(
             }
             Ok(n) => {
                 event!(tracing::Level::INFO, "Read {} TCP bytes", n);
-                let mut messages = received_messages.lock().await;
+                let messages = &mut ctx.lock().await.receive_events;
                 let addr = socket.peer_addr().unwrap();
 
-                let received_message = ReceivedMessage {
+                let received_message = ReceiveEvent {
                     instant: tokio::time::Instant::now(),
                     from: addr,
                     to: socket.local_addr().unwrap(),

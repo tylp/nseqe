@@ -3,7 +3,10 @@ use std::net::SocketAddr;
 use tokio::{io::AsyncWriteExt, net::UdpSocket};
 use tracing::{event, span};
 
-use crate::action::Action;
+use crate::{
+    action::Action,
+    node::{Ctx, SendEvent},
+};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum SendMode {
@@ -48,7 +51,7 @@ impl Action for Send {
         "SEND".into()
     }
 
-    async fn perform(&self, ctx: crate::node::Ctx) -> Result<(), crate::action::ActionError> {
+    async fn perform(&self, ctx: Ctx) -> Result<(), crate::action::ActionError> {
         let span = span!(tracing::Level::INFO, "send");
         let _enter = span.enter();
 
@@ -64,7 +67,7 @@ impl Action for Send {
         match self.mode {
             SendMode::Unicast => {
                 // Check if a stream is already connected to the destination
-                let mut streams = ctx.tcp_streams.lock().await;
+                let streams = &mut ctx.lock().await.tcp_streams;
                 if let Some(stream) = streams.get_mut(&self.to) {
                     // Send the data
                     if let Err(e) = stream.write_all(&self.buffer).await {
@@ -75,6 +78,12 @@ impl Action for Send {
                             e
                         );
                     } else {
+                        ctx.lock().await.send_events.push(SendEvent {
+                            instant: tokio::time::Instant::now(),
+                            from: self.from,
+                            to: self.to,
+                            buffer: self.buffer.clone(),
+                        });
                         event!(tracing::Level::INFO, "Data sent to {}", self.to);
                     }
                 } else {
@@ -99,6 +108,13 @@ impl Action for Send {
                     );
                     crate::action::ActionError::SendError(e.to_string())
                 })?;
+
+                ctx.lock().await.send_events.push(SendEvent {
+                    instant: tokio::time::Instant::now(),
+                    from: self.from,
+                    to: self.to,
+                    buffer: self.buffer.clone(),
+                });
             }
         }
 
