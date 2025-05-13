@@ -33,7 +33,7 @@ impl Action for Bind {
         let span = span!(tracing::Level::INFO, "bind");
         let _guard = span.enter();
 
-        event!(tracing::Level::INFO, "Binding to {}", self.to);
+        event!(tracing::Level::INFO, "Binding TCP socket to {}", self.to);
         let socket = tokio::net::TcpSocket::new_v4().map_err(|_| ActionError::BindError)?;
 
         socket
@@ -56,7 +56,7 @@ impl Action for Bind {
         });
 
         event!(
-            tracing::Level::INFO,
+            tracing::Level::DEBUG,
             "Started listening task server on {}",
             self.to
         );
@@ -70,7 +70,7 @@ async fn accept_udp(to: SocketAddr, ctx: Ctx) {
     let port = 49999;
 
     event!(
-        tracing::Level::INFO,
+        tracing::Level::DEBUG,
         "Binding UDP socket to {}:{}",
         ip,
         port
@@ -98,12 +98,8 @@ async fn accept_udp(to: SocketAddr, ctx: Ctx) {
             buffer: buf[..len].to_vec(),
         };
 
-        ctx.lock()
-            .await
-            .receive_events
-            .entry(addr)
-            .or_insert_with(Vec::new)
-            .push(received_message);
+        ctx.lock().await.receive_events.push(received_message);
+        ctx.lock().await.receive_notifier.notify_waiters();
     }
 }
 
@@ -156,9 +152,8 @@ async fn process_socket(mut socket: tokio::net::TcpStream, ctx: Ctx) {
                 break;
             }
             Ok(n) => {
-                event!(tracing::Level::INFO, "Read {} TCP bytes", n);
-                let messages = &mut ctx.lock().await.receive_events;
                 let addr = socket.peer_addr().unwrap();
+                event!(tracing::Level::INFO, "Read {} TCP bytes from {}", n, addr);
 
                 let received_message = ReceiveEvent {
                     instant: tokio::time::Instant::now(),
@@ -167,10 +162,8 @@ async fn process_socket(mut socket: tokio::net::TcpStream, ctx: Ctx) {
                     buffer: buf[..n].to_vec(),
                 };
 
-                messages
-                    .entry(addr)
-                    .or_insert_with(Vec::new)
-                    .push(received_message);
+                ctx.lock().await.receive_events.push(received_message);
+                ctx.lock().await.receive_notifier.notify_waiters();
             }
             Err(e) => {
                 event!(tracing::Level::ERROR, "Error reading from socket: {}", e);

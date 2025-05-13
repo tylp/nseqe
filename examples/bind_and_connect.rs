@@ -1,6 +1,9 @@
 use nse::Node;
 use nse::action::Sleep;
-use nse::protocol::ip::{Bind, Connect, ConnectPredicate, Send, SendMode, Wait, WaitEvent};
+use nse::protocol::ip::{
+    Bind, Connect, ConnectPredicate, MessagesPredicate, ReceivePredicate, Send, SendMode, Wait,
+    WaitEvent,
+};
 use tokio::task::JoinSet;
 
 #[tokio::main]
@@ -58,15 +61,24 @@ fn create_node_1() -> Node {
         vec![1, 2, 3, 4],
     );
 
-    let wait_action = Wait::new(WaitEvent::Connection(ConnectPredicate::new(
+    let wait_connection_action = Wait::new(WaitEvent::Connection(ConnectPredicate::new(
         "192.168.1.11:0".parse().unwrap(),
         "192.168.1.10:3000".parse().unwrap(),
     )));
 
+    let wait_message_action = Wait::new(WaitEvent::Messages(ReceivePredicate::new(vec![
+        MessagesPredicate {
+            from: "192.168.1.11:0".parse().unwrap(),
+            to: "192.168.1.10:3000".parse().unwrap(),
+            buffer: vec![1, 1],
+        },
+    ])));
+
     node.add_action(bind_action);
     node.add_action(sleep_action.clone());
     node.add_action(send_broadcast_action);
-    node.add_action(wait_action);
+    node.add_action(wait_connection_action);
+    node.add_action(wait_message_action);
     node.add_action(connection_action);
     node.add_action(send_unicast_action);
     node.add_action(sleep_action);
@@ -84,9 +96,18 @@ fn create_node_2() -> Node {
         1000,
     );
 
+    let send_unicast_action = Send::new(
+        SendMode::Unicast,
+        "192.168.1.11:4000".parse().unwrap(),
+        "192.168.1.10:3000".parse().unwrap(),
+        vec![1, 1],
+    );
+
     node.add_action(bind_action);
-    node.add_action(sleep_action);
+    node.add_action(sleep_action.clone());
     node.add_action(connection_action);
+    node.add_action(sleep_action);
+    node.add_action(send_unicast_action);
 
     node
 }

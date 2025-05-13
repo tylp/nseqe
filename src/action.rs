@@ -52,7 +52,6 @@ impl Action for Sleep {
         event!(tracing::Level::INFO, "Sleeping for {}ms", self.duration_ms);
         tokio::time::sleep(tokio::time::Duration::from_millis(self.duration_ms)).await;
 
-        event!(tracing::Level::INFO, "Woke up after {}ms", self.duration_ms);
         Ok(())
     }
 }

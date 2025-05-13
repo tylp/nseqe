@@ -67,7 +67,8 @@ impl Action for Send {
         match self.mode {
             SendMode::Unicast => {
                 // Check if a stream is already connected to the destination
-                let streams = &mut ctx.lock().await.tcp_streams;
+                let ctx = &mut ctx.lock().await;
+                let streams = &mut ctx.tcp_streams;
                 if let Some(stream) = streams.get_mut(&self.to) {
                     // Send the data
                     if let Err(e) = stream.write_all(&self.buffer).await {
@@ -78,7 +79,7 @@ impl Action for Send {
                             e
                         );
                     } else {
-                        ctx.lock().await.send_events.push(SendEvent {
+                        ctx.send_events.push(SendEvent {
                             instant: tokio::time::Instant::now(),
                             from: self.from,
                             to: self.to,

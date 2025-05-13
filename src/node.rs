@@ -9,7 +9,7 @@ use tracing::{event, span};
 
 use crate::action::Action;
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone)]
 pub struct ReceiveEvent {
     pub instant: Instant,
     pub from: SocketAddr,
@@ -30,11 +30,10 @@ pub struct ConnectEvent {
     pub to: SocketAddr,
 }
 
-pub type ReceivedMessages = HashMap<SocketAddr, Vec<ReceiveEvent>>;
-
 pub struct NodeContext {
     pub tcp_streams: HashMap<SocketAddr, TcpStream>,
-    pub receive_events: ReceivedMessages,
+    pub receive_events: Vec<ReceiveEvent>,
+    pub receive_notifier: Arc<Notify>,
     pub send_events: Vec<SendEvent>,
     pub connect_events: Vec<ConnectEvent>,
     pub connect_notifier: Arc<Notify>,
@@ -55,7 +54,8 @@ impl Node {
             actions: Vec::new(),
             ctx: Arc::new(Mutex::new(NodeContext {
                 tcp_streams: HashMap::new(),
-                receive_events: HashMap::new(),
+                receive_events: Vec::new(),
+                receive_notifier: Arc::new(Notify::new()),
                 send_events: Vec::new(),
                 connect_events: Vec::new(),
                 connect_notifier: Arc::new(Notify::new()),
@@ -78,6 +78,13 @@ impl Node {
         for action in self.actions.drain(..) {
             let span = span!(tracing::Level::INFO, "node");
             let _enter = span.enter();
+
+            event!(
+                tracing::Level::INFO,
+                "[..] Performing action {}",
+                action.name()
+            );
+
             match action.perform(self.ctx.clone()).await {
                 Ok(_) => event!(
                     tracing::Level::INFO,

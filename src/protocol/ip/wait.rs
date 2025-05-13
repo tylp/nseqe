@@ -5,7 +5,7 @@ use tracing::{event, span};
 
 use crate::{
     action::{Action, ActionError},
-    node::{ConnectEvent, Ctx, ReceiveEvent},
+    node::{Ctx, ReceiveEvent},
 };
 
 #[async_trait::async_trait]
@@ -39,9 +39,9 @@ impl Predicate for ConnectPredicate {
         let instant = Instant::now();
         loop {
             let notifier = {
-                let guard = ctx.lock().await;
+                let context = ctx.lock().await;
 
-                if guard
+                if context
                     .connect_events
                     .iter()
                     .filter(|e| e.instant > instant) //  filter out old events
@@ -82,7 +82,7 @@ impl Predicate for ConnectPredicate {
                     );
                 }
 
-                guard.connect_notifier.clone()
+                context.connect_notifier.clone()
             };
 
             // wait to be notified before checking again
@@ -92,26 +92,33 @@ impl Predicate for ConnectPredicate {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct ReceivePredicate {
+pub struct MessagesPredicate {
     pub from: SocketAddr,
     pub to: SocketAddr,
-    pub messages: Vec<ReceiveEvent>,
+    pub buffer: Vec<u8>,
+}
+
+impl MessagesPredicate {
+    pub fn matches(&self, event: &ReceiveEvent) -> bool {
+        if self.from.port() == 0 {
+            event.from.ip() == self.from.ip() && event.to == self.to && event.buffer == self.buffer
+        } else {
+            event.from == self.from && event.to == self.to && event.buffer == self.buffer
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct ReceivePredicate {
+    pub messages: Vec<MessagesPredicate>,
 }
 
 impl ReceivePredicate {
-    pub fn new(from: SocketAddr, to: SocketAddr, messages: Vec<ReceiveEvent>) -> Self {
-        ReceivePredicate { from, to, messages }
+    pub fn new(messages: Vec<MessagesPredicate>) -> Self {
+        ReceivePredicate { messages }
     }
 
-    pub fn from(&self) -> &SocketAddr {
-        &self.from
-    }
-
-    pub fn to(&self) -> &SocketAddr {
-        &self.to
-    }
-
-    pub fn messages(&self) -> &[ReceiveEvent] {
+    pub fn messages(&self) -> &[MessagesPredicate] {
         &self.messages
     }
 }
@@ -119,19 +126,50 @@ impl ReceivePredicate {
 #[async_trait::async_trait]
 impl Predicate for ReceivePredicate {
     async fn check(&self, ctx: Ctx) -> Result<(), ActionError> {
+        let instant = Instant::now();
         loop {
+            event!(
+                tracing::Level::DEBUG,
+                "Checking receive predicate for messages {:?}",
+                self.messages
+            );
+
             let notifier = {
-                let guard = ctx.lock().await;
-                if let Some(received) = guard.receive_events.get(&self.from) {
-                    if received
-                        .iter()
-                        .any(|e| e.from == self.from && e.to == self.to)
-                    {
+                let context = ctx.lock().await;
+                let events: Vec<_> = context
+                    .receive_events
+                    .iter()
+                    .filter(|e| e.instant > instant)
+                    .collect();
+
+                let mut idx = 0;
+                let received_ordered = self.messages.iter().all(|pred| {
+                    if let Some(pos) = events[idx..].iter().position(|evt| pred.matches(evt)) {
+                        idx += pos + 1; // advance past the match
+                        true
+                    } else {
+                        false
+                    }
+                });
+
+                match received_ordered {
+                    true => {
+                        event!(
+                            tracing::Level::DEBUG,
+                            "Receive predicate found for messages {:?}",
+                            self.messages
+                        );
                         return Ok(());
                     }
+                    false => {
+                        event!(
+                            tracing::Level::DEBUG,
+                            "Receive predicate not found for messages {:?}",
+                            self.messages
+                        );
+                        context.receive_notifier.clone()
+                    }
                 }
-
-                guard.connect_notifier.clone()
             };
 
             // wait to be notified before checking again
@@ -173,26 +211,15 @@ impl Action for Wait {
                 let span = span!(tracing::Level::INFO, "wait-connection");
                 let _enter = span.enter();
 
-                event!(
-                    tracing::Level::INFO,
-                    "Waiting for connection from {} to {}",
-                    predicate.from,
-                    predicate.to
-                );
-
                 predicate.check(ctx).await
             }
             WaitEvent::Messages(predicate) => {
                 let span = span!(tracing::Level::INFO, "wait-messages");
                 let _enter = span.enter();
 
-                event!(
-                    tracing::Level::INFO,
-                    "Waiting for messages from {}",
-                    predicate.messages.len()
-                );
+                predicate.check(ctx).await?;
 
-                unimplemented!();
+                Ok(())
             }
         }
     }
