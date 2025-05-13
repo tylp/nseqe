@@ -1,6 +1,6 @@
 use crate::node::Ctx;
 use thiserror::Error;
-use tracing::{event, span};
+use tracing::event;
 
 #[async_trait::async_trait]
 pub trait Action: Send + Sync {
@@ -46,9 +46,6 @@ impl Action for Sleep {
     }
 
     async fn perform(&self, _ctx: Ctx) -> Result<(), ActionError> {
-        let span = span!(tracing::Level::INFO, "sleep");
-        let _enter = span.enter();
-
         event!(tracing::Level::INFO, "Sleeping for {}ms", self.duration_ms);
         tokio::time::sleep(tokio::time::Duration::from_millis(self.duration_ms)).await;
 

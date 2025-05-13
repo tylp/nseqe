@@ -4,7 +4,7 @@ use crate::{
 };
 use std::time::Duration;
 use tokio::net::TcpSocket;
-use tracing::{event, span};
+use tracing::event;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Connect {
@@ -42,9 +42,6 @@ impl Action for Connect {
     }
 
     async fn perform(&self, ctx: Ctx) -> Result<(), ActionError> {
-        let span = span!(tracing::Level::INFO, "connect");
-        let _enter = span.enter();
-
         event!(
             tracing::Level::INFO,
             "Connecting from {} to {}",

@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 
 use tokio::time::Instant;
-use tracing::{event, span};
+use tracing::event;
 
 use crate::{
     action::{Action, ActionError},
@@ -207,20 +207,8 @@ impl Action for Wait {
 
     async fn perform(&self, ctx: Ctx) -> Result<(), ActionError> {
         match &self.event {
-            WaitEvent::Connection(predicate) => {
-                let span = span!(tracing::Level::INFO, "wait-connection");
-                let _enter = span.enter();
-
-                predicate.check(ctx).await
-            }
-            WaitEvent::Messages(predicate) => {
-                let span = span!(tracing::Level::INFO, "wait-messages");
-                let _enter = span.enter();
-
-                predicate.check(ctx).await?;
-
-                Ok(())
-            }
+            WaitEvent::Connection(predicate) => predicate.check(ctx).await,
+            WaitEvent::Messages(predicate) => predicate.check(ctx).await,
         }
     }
 }

@@ -2,7 +2,7 @@ use std::{net::SocketAddr, sync::Arc};
 use tokio::net::UdpSocket;
 
 use tokio::io::AsyncReadExt;
-use tracing::{Instrument, event, span};
+use tracing::{Instrument, event, instrument};
 
 use crate::node::ConnectEvent;
 use crate::{
@@ -30,9 +30,6 @@ impl Action for Bind {
     }
 
     async fn perform(&self, ctx: Ctx) -> Result<(), ActionError> {
-        let span = span!(tracing::Level::INFO, "bind");
-        let _guard = span.enter();
-
         event!(tracing::Level::INFO, "Binding TCP socket to {}", self.to);
         let socket = tokio::net::TcpSocket::new_v4().map_err(|_| ActionError::BindError)?;
 
@@ -65,8 +62,9 @@ impl Action for Bind {
     }
 }
 
-async fn accept_udp(to: SocketAddr, ctx: Ctx) {
-    let ip = to.ip();
+#[instrument(name = "udp_listener", level = "info", skip(ctx), fields(addr = %addr))]
+async fn accept_udp(addr: SocketAddr, ctx: Ctx) {
+    let ip = addr.ip();
     let port = 49999;
 
     event!(
@@ -81,8 +79,6 @@ async fn accept_udp(to: SocketAddr, ctx: Ctx) {
 
     let mut buf = vec![0; 1024];
     loop {
-        let span = span!(tracing::Level::INFO, "accept-udp");
-        let _guard = span.enter();
         let (len, addr) = udp_socket.recv_from(&mut buf).await.unwrap();
         event!(
             tracing::Level::INFO,
@@ -105,36 +101,41 @@ async fn accept_udp(to: SocketAddr, ctx: Ctx) {
 
 /// Listens for incoming connections on the given listener
 /// and processes each connection in a separate task.
+#[instrument(name = "tcp_listener", level = "info", skip(listener, ctx), fields(addr = %listener.local_addr().unwrap()))]
 async fn accept_tcp(listener: tokio::net::TcpListener, addr: std::net::SocketAddr, ctx: Ctx) {
     let binded_addr = addr.to_string();
-    let _ = tokio::spawn(async move {
-        loop {
-            let span = span!(tracing::Level::INFO, "accept-tcp");
-            let _guard = span.enter();
-            match listener.accept().await {
-                Ok((socket, addr)) => {
-                    event!(tracing::Level::INFO, "Accepted connection from {}", addr);
 
-                    // Store the event in the context and signal every task waiting for it
-                    ctx.lock().await.connect_events.push(ConnectEvent {
-                        instant: tokio::time::Instant::now(),
-                        from: addr,
-                        to: socket.local_addr().unwrap(),
-                    });
-                    ctx.lock().await.connect_notifier.notify_waiters();
+    let _ = tokio::spawn(
+        async move {
+            loop {
+                match listener.accept().await {
+                    Ok((socket, addr)) => {
+                        event!(tracing::Level::INFO, "Accepted connection from {}", addr);
 
-                    let ctx_clone = ctx.clone();
-                    tokio::spawn(async move {
-                        process_socket(socket, ctx_clone).await;
-                    });
-                }
-                Err(e) => {
-                    event!(tracing::Level::ERROR, "Error accepting connection: {}", e);
+                        // Store the event in the context and signal every task waiting for it
+                        ctx.lock().await.connect_events.push(ConnectEvent {
+                            instant: tokio::time::Instant::now(),
+                            from: addr,
+                            to: socket.local_addr().unwrap(),
+                        });
+                        ctx.lock().await.connect_notifier.notify_waiters();
+
+                        let ctx_clone = ctx.clone();
+                        tokio::spawn(
+                            async move {
+                                process_socket(socket, ctx_clone).await;
+                            }
+                            .instrument(tracing::info_span!("process_socket", addr = %addr)),
+                        );
+                    }
+                    Err(e) => {
+                        event!(tracing::Level::ERROR, "Error accepting connection: {}", e);
+                    }
                 }
             }
         }
-    })
-    .instrument(tracing::info_span!("listen_task", addr = %binded_addr))
+        .instrument(tracing::info_span!("accept_tcp", addr = %binded_addr)),
+    )
     .await;
 }
 
@@ -143,9 +144,6 @@ async fn accept_tcp(listener: tokio::net::TcpListener, addr: std::net::SocketAdd
 async fn process_socket(mut socket: tokio::net::TcpStream, ctx: Ctx) {
     let mut buf = vec![0; 1024];
     loop {
-        let span = span!(tracing::Level::INFO, "process-socket");
-        let _guard = span.enter();
-
         match socket.read(&mut buf).await {
             Ok(0) => {
                 event!(tracing::Level::INFO, "Buffer is empty, closing connection");

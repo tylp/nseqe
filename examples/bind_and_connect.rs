@@ -5,6 +5,7 @@ use nse::protocol::ip::{
     WaitEvent,
 };
 use tokio::task::JoinSet;
+use tracing::{Instrument, span};
 
 #[tokio::main]
 async fn main() {
@@ -18,13 +19,19 @@ async fn main() {
 
     let mut set = JoinSet::new();
 
-    set.spawn(async move {
-        node_1.start().await;
-    });
+    set.spawn(
+        async move {
+            node_1.start().await;
+        }
+        .instrument(span!(tracing::Level::INFO, "node_1")),
+    );
 
-    set.spawn(async move {
-        node_2.start().await;
-    });
+    set.spawn(
+        async move {
+            node_2.start().await;
+        }
+        .instrument(span!(tracing::Level::INFO, "node_2")),
+    );
 
     while let Some(res) = set.join_next().await {
         match res {

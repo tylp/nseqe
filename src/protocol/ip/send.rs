@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 
 use tokio::{io::AsyncWriteExt, net::UdpSocket};
-use tracing::{event, span};
+use tracing::event;
 
 use crate::{
     action::Action,
@@ -52,9 +52,6 @@ impl Action for Send {
     }
 
     async fn perform(&self, ctx: Ctx) -> Result<(), crate::action::ActionError> {
-        let span = span!(tracing::Level::INFO, "send");
-        let _enter = span.enter();
-
         event!(
             tracing::Level::INFO,
             "Sending {} bytes from {} to {} in {:?} mode",

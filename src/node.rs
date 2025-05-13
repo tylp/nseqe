@@ -1,11 +1,11 @@
-use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+use std::{collections::HashMap, fmt::Debug, net::SocketAddr, sync::Arc};
 
 use tokio::{
     net::TcpStream,
     sync::{Mutex, Notify},
     time::Instant,
 };
-use tracing::{event, span};
+use tracing::{event, instrument};
 
 use crate::action::Action;
 
@@ -17,6 +17,7 @@ pub struct ReceiveEvent {
     pub buffer: Vec<u8>,
 }
 
+#[derive(Debug, Clone)]
 pub struct SendEvent {
     pub instant: Instant,
     pub from: SocketAddr,
@@ -24,12 +25,14 @@ pub struct SendEvent {
     pub buffer: Vec<u8>,
 }
 
+#[derive(Debug, Clone)]
 pub struct ConnectEvent {
     pub instant: Instant,
     pub from: SocketAddr,
     pub to: SocketAddr,
 }
 
+#[derive(Debug)]
 pub struct NodeContext {
     pub tcp_streams: HashMap<SocketAddr, TcpStream>,
     pub receive_events: Vec<ReceiveEvent>,
@@ -45,6 +48,12 @@ pub struct Node {
     name: String,
     actions: Vec<Box<dyn Action>>,
     ctx: Ctx,
+}
+
+impl Debug for Node {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "node-{:?}", self.name)
+    }
 }
 
 impl Node {
@@ -74,25 +83,17 @@ impl Node {
         self.actions.push(Box::new(action));
     }
 
+    #[instrument(name = "node_start", level = "info", skip(self), fields(node = %self.name))]
     pub async fn start(&mut self) {
         for action in self.actions.drain(..) {
-            let span = span!(tracing::Level::INFO, "node");
-            let _enter = span.enter();
-
-            event!(
-                tracing::Level::INFO,
-                "[..] Performing action {}",
-                action.name()
-            );
-
-            match action.perform(self.ctx.clone()).await {
-                Ok(_) => event!(
-                    tracing::Level::INFO,
-                    "[OK] Action {} performed successfully",
-                    action.name()
-                ),
-                Err(e) => event!(tracing::Level::ERROR, "Error performing action: {:?}", e),
+            #[instrument(name = "action", level = "info", skip(ctx), fields(action = %action.name()))]
+            async fn run_action(action: &dyn Action, ctx: Ctx) {
+                if let Err(e) = action.perform(ctx).await {
+                    event!(tracing::Level::ERROR, "Error performing action: {:?}", e);
+                }
             }
+
+            run_action(&*action, self.ctx.clone()).await;
         }
 
         event!(tracing::Level::INFO, "All actions performed");
