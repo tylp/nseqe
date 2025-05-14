@@ -5,7 +5,7 @@ use tracing::event;
 
 use crate::{
     action::{Action, ActionError},
-    node::{Ctx, ReceiveEvent},
+    node::{ConnectEvent, Ctx, ReceiveEvent},
 };
 
 #[async_trait::async_trait]
@@ -40,46 +40,26 @@ impl Predicate for ConnectPredicate {
         loop {
             let notifier = {
                 let context = ctx.lock().await;
+                let connect_events = &context.connect_events;
 
-                if context
-                    .connect_events
-                    .iter()
-                    .filter(|e| e.instant > instant) //  filter out old events
-                    .any(|e| {
-                        // If the from port is 0, we should ignore the from:port in the check
-                        if self.from.port() == 0 {
-                            event!(
-                                tracing::Level::DEBUG,
-                                "Checking connection from {} (portless) to {}",
-                                self.from.ip(),
-                                self.to
-                            );
-                            e.from.ip() == self.from.ip() && e.to == self.to
-                        } else {
-                            event!(
-                                tracing::Level::DEBUG,
-                                "Checking connection from {} to {}",
-                                self.from,
-                                self.to
-                            );
-                            e.from == self.from && e.to == self.to
-                        }
-                    })
-                {
-                    event!(
-                        tracing::Level::DEBUG,
-                        "Connection from {} to {} found",
-                        self.from,
-                        self.to
-                    );
-                    return Ok(());
-                } else {
-                    event!(
-                        tracing::Level::DEBUG,
-                        "Connection from {} to {} not found",
-                        self.from,
-                        self.to
-                    );
+                match connect_match(self.from, self.to, instant, connect_events) {
+                    true => {
+                        event!(
+                            tracing::Level::DEBUG,
+                            "Connection from {} to {} found",
+                            self.from,
+                            self.to
+                        );
+                        return Ok(());
+                    }
+                    false => {
+                        event!(
+                            tracing::Level::DEBUG,
+                            "Connection from {} to {} not found",
+                            self.from,
+                            self.to
+                        );
+                    }
                 }
 
                 context.connect_notifier.clone()
@@ -89,6 +69,37 @@ impl Predicate for ConnectPredicate {
             notifier.notified().await;
         }
     }
+}
+
+fn connect_match(
+    expected_from: SocketAddr,
+    expected_to: SocketAddr,
+    expected_instant: Instant,
+    connect_events: &[ConnectEvent],
+) -> bool {
+    connect_events
+        .iter()
+        .filter(|e| e.instant > expected_instant) //  filter out old events
+        .any(|e| {
+            // If the from port is 0, we should ignore the from:port in the check
+            if expected_from.port() == 0 {
+                event!(
+                    tracing::Level::DEBUG,
+                    "Checking connection from {} (portless) to {}",
+                    expected_from.ip(),
+                    expected_to
+                );
+                e.from.ip() == expected_from.ip() && e.to == expected_to
+            } else {
+                event!(
+                    tracing::Level::DEBUG,
+                    "Checking connection from {} to {}",
+                    expected_from,
+                    expected_to
+                );
+                e.from == expected_from && e.to == expected_to
+            }
+        })
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -219,9 +230,15 @@ impl Action for Wait {
 
 #[cfg(test)]
 mod tests {
+    use std::{net::SocketAddr, time::Duration};
+
     use tokio::time::Instant;
 
-    use crate::{ReceiveEvent, protocol::ip::wait::receive_exact_match};
+    use crate::{
+        ReceiveEvent,
+        node::ConnectEvent,
+        protocol::ip::wait::{connect_match, receive_exact_match},
+    };
 
     use super::MessagesPredicate;
 
@@ -339,5 +356,159 @@ mod tests {
         let expected_messages: Vec<MessagesPredicate> = vec![predicate1, predicate2];
 
         assert!(!receive_exact_match(&received_events, &expected_messages));
+    }
+
+    #[test]
+    fn test_connect_match() {
+        let expected_from: SocketAddr = "127.0.0.1:3000".parse().unwrap();
+        let expected_to: SocketAddr = "127.0.0.1:4000".parse().unwrap();
+        let expected_instant = Instant::now();
+
+        let event_instant = expected_instant + Duration::from_millis(1);
+
+        let connect_event = ConnectEvent {
+            instant: event_instant,
+            from: "127.0.0.1:3000".parse().unwrap(),
+            to: "127.0.0.1:4000".parse().unwrap(),
+        };
+
+        assert!(connect_match(
+            expected_from,
+            expected_to,
+            expected_instant,
+            &[connect_event],
+        ));
+    }
+
+    #[test]
+    fn test_connect_match_different_from() {
+        let expected_from: SocketAddr = "127.0.0.1:9000".parse().unwrap();
+        let expected_to: SocketAddr = "127.0.0.1:4000".parse().unwrap();
+        let expected_instant = Instant::now();
+
+        let event_instant = expected_instant + Duration::from_millis(1);
+
+        let connect_event = ConnectEvent {
+            instant: event_instant,
+            from: "127.0.0.1:3000".parse().unwrap(),
+            to: "127.0.0.1:4000".parse().unwrap(),
+        };
+
+        assert!(!connect_match(
+            expected_from,
+            expected_to,
+            expected_instant,
+            &[connect_event],
+        ));
+    }
+
+    #[test]
+    fn test_connect_match_different_to() {
+        let expected_from: SocketAddr = "127.0.0.1:3000".parse().unwrap();
+        let expected_to: SocketAddr = "127.0.0.1:9000".parse().unwrap();
+        let expected_instant = Instant::now();
+
+        let event_instant = expected_instant + Duration::from_millis(1);
+
+        let connect_event = ConnectEvent {
+            instant: event_instant,
+            from: "127.0.0.1:3000".parse().unwrap(),
+            to: "127.0.0.1:4000".parse().unwrap(),
+        };
+
+        assert!(!connect_match(
+            expected_from,
+            expected_to,
+            expected_instant,
+            &[connect_event],
+        ));
+    }
+
+    #[test]
+    fn test_connect_match_portless() {
+        let expected_from: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let expected_to: SocketAddr = "127.0.0.1:4000".parse().unwrap();
+        let expected_instant = Instant::now();
+
+        let event_instant = expected_instant + Duration::from_millis(1);
+
+        let connect_event = ConnectEvent {
+            instant: event_instant,
+            from: "127.0.0.1:3000".parse().unwrap(),
+            to: "127.0.0.1:4000".parse().unwrap(),
+        };
+
+        assert!(connect_match(
+            expected_from,
+            expected_to,
+            expected_instant,
+            &[connect_event],
+        ));
+    }
+
+    #[test]
+    fn test_connect_match_portless_different_from() {
+        let expected_from: SocketAddr = "127.0.0.100:0".parse().unwrap();
+        let expected_to: SocketAddr = "127.0.0.1:4000".parse().unwrap();
+        let expected_instant = Instant::now();
+
+        let event_instant = expected_instant + Duration::from_millis(1);
+
+        let connect_event = ConnectEvent {
+            instant: event_instant,
+            from: "127.0.0.1:3000".parse().unwrap(),
+            to: "127.0.0.1:4000".parse().unwrap(),
+        };
+
+        assert!(!connect_match(
+            expected_from,
+            expected_to,
+            expected_instant,
+            &[connect_event],
+        ));
+    }
+
+    #[test]
+    fn test_connect_match_portless_different_to() {
+        let expected_from: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let expected_to: SocketAddr = "127.0.0.100:4000".parse().unwrap();
+        let expected_instant = Instant::now();
+
+        let event_instant = expected_instant + Duration::from_millis(1);
+
+        let connect_event = ConnectEvent {
+            instant: event_instant,
+            from: "127.0.0.1:3000".parse().unwrap(),
+            to: "127.0.0.1:4000".parse().unwrap(),
+        };
+
+        assert!(!connect_match(
+            expected_from,
+            expected_to,
+            expected_instant,
+            &[connect_event],
+        ));
+    }
+
+    #[test]
+    fn test_connect_match_same_instant() {
+        let expected_from: SocketAddr = "127.0.0.1:3000".parse().unwrap();
+        let expected_to: SocketAddr = "127.0.0.1:4000".parse().unwrap();
+        let expected_instant = Instant::now();
+
+        let event_instant = expected_instant;
+
+        let connect_event = ConnectEvent {
+            instant: event_instant,
+            from: "127.0.0.1:3000".parse().unwrap(),
+            to: "127.0.0.1:4000".parse().unwrap(),
+        };
+
+        assert!(!connect_match(
+            expected_from,
+            expected_to,
+            expected_instant,
+            &[connect_event],
+        ));
     }
 }
