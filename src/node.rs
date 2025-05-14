@@ -83,6 +83,10 @@ impl Node {
         self.actions.push(Box::new(action));
     }
 
+    pub fn ctx(&self) -> Ctx {
+        Arc::clone(&self.ctx)
+    }
+
     #[instrument(name = "node_start", level = "info", skip(self), fields(node = %self.name))]
     pub async fn start(&mut self) {
         for action in self.actions.drain(..) {

@@ -136,23 +136,15 @@ impl Predicate for ReceivePredicate {
 
             let notifier = {
                 let context = ctx.lock().await;
-                let events: Vec<_> = context
+                let events: Vec<&ReceiveEvent> = context
                     .receive_events
                     .iter()
                     .filter(|e| e.instant > instant)
                     .collect();
 
-                let mut idx = 0;
-                let received_ordered = self.messages.iter().all(|pred| {
-                    if let Some(pos) = events[idx..].iter().position(|evt| pred.matches(evt)) {
-                        idx += pos + 1; // advance past the match
-                        true
-                    } else {
-                        false
-                    }
-                });
+                let expected_messages = &self.messages;
 
-                match received_ordered {
+                match receive_exact_match(&events, expected_messages) {
                     true => {
                         event!(
                             tracing::Level::DEBUG,
@@ -176,6 +168,18 @@ impl Predicate for ReceivePredicate {
             notifier.notified().await;
         }
     }
+}
+
+fn receive_exact_match(events: &[&ReceiveEvent], expected_messages: &[MessagesPredicate]) -> bool {
+    let mut idx = 0;
+    expected_messages.iter().all(|pred| {
+        if let Some(pos) = events[idx..].iter().position(|evt| pred.matches(evt)) {
+            idx += pos + 1; // advance past the match
+            true
+        } else {
+            false
+        }
+    })
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -210,5 +214,130 @@ impl Action for Wait {
             WaitEvent::Connection(predicate) => predicate.check(ctx).await,
             WaitEvent::Messages(predicate) => predicate.check(ctx).await,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::time::Instant;
+
+    use crate::{ReceiveEvent, protocol::ip::wait::receive_exact_match};
+
+    use super::MessagesPredicate;
+
+    #[test]
+    fn test_receive_exact_match() {
+        let event1 = ReceiveEvent {
+            instant: Instant::now(),
+            from: "127.0.0.1:3000".parse().unwrap(),
+            to: "127.0.0.1:3000".parse().unwrap(),
+            buffer: vec![1, 2, 3],
+        };
+
+        let event2 = ReceiveEvent {
+            instant: Instant::now(),
+            from: "127.0.0.1:30000".parse().unwrap(),
+            to: "127.0.0.1:30000".parse().unwrap(),
+            buffer: vec![4, 5, 6],
+        };
+
+        let predicate1 = MessagesPredicate {
+            from: "127.0.0.1:3000".parse().unwrap(),
+            to: "127.0.0.1:3000".parse().unwrap(),
+            buffer: vec![1, 2, 3],
+        };
+
+        let predicate2 = MessagesPredicate {
+            from: "127.0.0.1:30000".parse().unwrap(),
+            to: "127.0.0.1:30000".parse().unwrap(),
+            buffer: vec![4, 5, 6],
+        };
+
+        let received_events: Vec<&ReceiveEvent> = vec![&event1, &event2];
+        let expected_messages: Vec<MessagesPredicate> = vec![predicate1, predicate2];
+
+        assert!(receive_exact_match(&received_events, &expected_messages));
+    }
+
+    #[test]
+    fn test_receive_exact_match_different_length() {
+        let event1 = ReceiveEvent {
+            instant: Instant::now(),
+            from: "127.0.0.1:3000".parse().unwrap(),
+            to: "127.0.0.1:3000".parse().unwrap(),
+            buffer: vec![1, 2, 3],
+        };
+
+        let predicate1 = MessagesPredicate {
+            from: "127.0.0.1:3000".parse().unwrap(),
+            to: "127.0.0.1:3000".parse().unwrap(),
+            buffer: vec![1, 2, 3],
+        };
+
+        let predicate2 = MessagesPredicate {
+            from: "127.0.0.1:30000".parse().unwrap(),
+            to: "127.0.0.1:30000".parse().unwrap(),
+            buffer: vec![4, 5, 6],
+        };
+
+        let received_events: Vec<&ReceiveEvent> = vec![&event1];
+        let expected_messages: Vec<MessagesPredicate> = vec![predicate1, predicate2];
+
+        assert!(!receive_exact_match(&received_events, &expected_messages));
+    }
+
+    #[test]
+    fn test_receive_exact_match_different_buffer() {
+        let event1 = ReceiveEvent {
+            instant: Instant::now(),
+            from: "127.0.0.1:3000".parse().unwrap(),
+            to: "127.0.0.1:3000".parse().unwrap(),
+            buffer: vec![1, 2, 3],
+        };
+
+        let predicate1 = MessagesPredicate {
+            from: "127.0.0.1:3000".parse().unwrap(),
+            to: "127.0.0.1:3000".parse().unwrap(),
+            buffer: vec![],
+        };
+
+        let received_events: Vec<&ReceiveEvent> = vec![&event1];
+        let expected_messages: Vec<MessagesPredicate> = vec![predicate1];
+
+        assert!(!receive_exact_match(&received_events, &expected_messages));
+    }
+
+    #[test]
+    fn test_receive_exact_match_different_order() {
+        let event1 = ReceiveEvent {
+            instant: Instant::now(),
+            from: "127.0.0.1:3000".parse().unwrap(),
+            to: "127.0.0.1:3000".parse().unwrap(),
+            buffer: vec![1, 2, 3],
+        };
+
+        let event2 = ReceiveEvent {
+            instant: Instant::now(),
+            from: "127.0.0.1:30000".parse().unwrap(),
+            to: "127.0.0.1:30000".parse().unwrap(),
+            buffer: vec![4, 5, 6],
+        };
+
+        let predicate1 = MessagesPredicate {
+            from: "127.0.0.1:3000".parse().unwrap(),
+            to: "127.0.0.1:3000".parse().unwrap(),
+            buffer: vec![1, 2, 3],
+        };
+
+        let predicate2 = MessagesPredicate {
+            from: "127.0.0.1:30000".parse().unwrap(),
+            to: "127.0.0.1:30000".parse().unwrap(),
+            buffer: vec![4, 5, 6],
+        };
+
+        let received_events: Vec<&ReceiveEvent> = vec![&event2, &event1];
+        let expected_messages: Vec<MessagesPredicate> = vec![predicate1, predicate2];
+
+        assert!(!receive_exact_match(&received_events, &expected_messages));
     }
 }
