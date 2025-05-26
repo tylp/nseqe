@@ -10,27 +10,34 @@ use crate::{
     node::{Ctx, ReceiveEvent},
 };
 
+/// Represents a bind action that binds a TCP socket to a specific address.
 #[derive(Debug, PartialEq, Clone)]
 pub struct Bind {
     to: std::net::SocketAddr,
 }
+
 impl Bind {
+    /// Creates a new `Bind` action with the specified address.
     pub fn new(to: std::net::SocketAddr) -> Self {
         Bind { to }
     }
 
+    /// Returns the address to which the socket will be bound.
     pub fn to(&self) -> &std::net::SocketAddr {
         &self.to
     }
 }
+
+/// Binds a TCP socket to the specified address and starts listening for incoming connections.
 #[async_trait::async_trait]
 impl Action for Bind {
     fn name(&self) -> String {
         "BIND".into()
     }
 
+    /// Performs the bind action by creating a socket, binding it to the specified address,
     async fn perform(&self, ctx: Ctx) -> Result<(), ActionError> {
-        event!(tracing::Level::INFO, "Binding TCP socket to {}", self.to);
+        event!(tracing::Level::INFO, "Binding socket to {}", self.to);
         let socket = tokio::net::TcpSocket::new_v4().map_err(|_| ActionError::BindError)?;
 
         socket

@@ -23,6 +23,7 @@ pub struct Send {
 }
 
 impl Send {
+    /// Creates a new `Send` action.
     pub fn new(mode: SendMode, from: SocketAddr, to: SocketAddr, buffer: Vec<u8>) -> Self {
         Send {
             mode,
@@ -51,6 +52,7 @@ impl Action for Send {
         "SEND".into()
     }
 
+    /// Sends data from `from` to `to` using the specified `mode`.
     async fn perform(&self, ctx: Ctx) -> Result<(), crate::action::ActionError> {
         event!(
             tracing::Level::INFO,

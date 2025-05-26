@@ -2,12 +2,14 @@ use crate::node::Ctx;
 use thiserror::Error;
 use tracing::event;
 
+/// Action trait defines the interface for actions that can be performed in the system.
 #[async_trait::async_trait]
 pub trait Action: Send + Sync {
     fn name(&self) -> String;
     async fn perform(&self, ctx: Ctx) -> Result<(), ActionError>;
 }
 
+/// ActionError defines the possible errors that can occur during action execution.
 #[derive(Debug, PartialEq, Clone, Error)]
 pub enum ActionError {
     #[error("Connection error")]
@@ -24,6 +26,7 @@ pub enum ActionError {
     WaitError,
 }
 
+/// Sleep action represents a delay in the execution of the action sequence.
 #[derive(Debug, PartialEq, Clone)]
 pub struct Sleep {
     duration_ms: u64,
@@ -45,6 +48,7 @@ impl Action for Sleep {
         "SLEEP".into()
     }
 
+    /// Performs the sleep action by waiting for the specified duration.
     async fn perform(&self, _ctx: Ctx) -> Result<(), ActionError> {
         event!(tracing::Level::INFO, "Sleeping for {}ms", self.duration_ms);
         tokio::time::sleep(tokio::time::Duration::from_millis(self.duration_ms)).await;

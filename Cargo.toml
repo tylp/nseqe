@@ -2,6 +2,10 @@
 name = "nseqe"
 version = "0.1.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "A Rust library for managing and processing sequences of events."
+repository = "https://github.com/tylp/nseqe"
+readme = "README.md"
 
 [dependencies]
 async-trait = "0.1.88"

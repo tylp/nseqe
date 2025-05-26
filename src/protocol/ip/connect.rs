@@ -14,6 +14,7 @@ pub struct Connect {
 }
 
 impl Connect {
+    /// Creates a new Connect action.
     pub fn new(from: std::net::SocketAddr, to: std::net::SocketAddr, timeout_ms: u64) -> Self {
         Connect {
             from,
@@ -41,6 +42,7 @@ impl Action for Connect {
         "CONNECT".into()
     }
 
+    /// Attempts to connect from `from` to `to` using a TCP socket.
     async fn perform(&self, ctx: Ctx) -> Result<(), ActionError> {
         event!(
             tracing::Level::INFO,

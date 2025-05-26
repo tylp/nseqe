@@ -9,6 +9,7 @@ use tracing::{event, instrument};
 
 use crate::action::Action;
 
+/// Represents an event that occurs when data is received over a network socket.
 #[derive(Debug, Clone)]
 pub struct ReceiveEvent {
     pub instant: Instant,
@@ -17,6 +18,7 @@ pub struct ReceiveEvent {
     pub buffer: Vec<u8>,
 }
 
+/// Represents an event that occurs when data is sent over a network socket.
 #[derive(Debug, Clone)]
 pub struct SendEvent {
     pub instant: Instant,
@@ -25,6 +27,7 @@ pub struct SendEvent {
     pub buffer: Vec<u8>,
 }
 
+/// Represents an event that occurs when a connection is established between two sockets.
 #[derive(Debug, Clone)]
 pub struct ConnectEvent {
     pub instant: Instant,
@@ -32,6 +35,7 @@ pub struct ConnectEvent {
     pub to: SocketAddr,
 }
 
+/// Represents the context of a node, containing its TCP streams and events.
 #[derive(Debug)]
 pub struct NodeContext {
     pub tcp_streams: HashMap<SocketAddr, TcpStream>,
@@ -44,6 +48,7 @@ pub struct NodeContext {
 
 pub type Ctx = Arc<Mutex<NodeContext>>;
 
+/// Represents a node in the network, which can perform actions and maintain its context.
 pub struct Node {
     name: String,
     actions: Vec<Box<dyn Action>>,
@@ -87,6 +92,7 @@ impl Node {
         Arc::clone(&self.ctx)
     }
 
+    /// Starts the node, executing all its actions in order.
     #[instrument(name = "node_start", level = "info", skip(self), fields(node = %self.name))]
     pub async fn start(&mut self) {
         for action in self.actions.drain(..) {

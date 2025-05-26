@@ -35,6 +35,7 @@ impl ConnectPredicate {
 
 #[async_trait::async_trait]
 impl Predicate for ConnectPredicate {
+    /// Checks if a connection event from `from` to `to` exists in the context.
     async fn check(&self, ctx: Ctx) -> Result<(), ActionError> {
         let instant = Instant::now();
         loop {
@@ -136,6 +137,7 @@ impl ReceivePredicate {
 
 #[async_trait::async_trait]
 impl Predicate for ReceivePredicate {
+    /// Checks if the specified messages have been received in the context.
     async fn check(&self, ctx: Ctx) -> Result<(), ActionError> {
         let instant = Instant::now();
         loop {
