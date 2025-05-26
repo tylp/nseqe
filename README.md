@@ -218,12 +218,3 @@ node:
       buffer: [0x1, 0x1, 0x1]
 
 ```
-
-# Custom protocols
-
-Messages can be structured using **Protocol Buffers**, allowing users to define and serialize custom message formats.
-
-# Technical Architecture
-
-Sequence is structured in two components. The `nse` (Network Sequence Executor) library and the front-end built in React. The whole apps runs on Tauri.
-

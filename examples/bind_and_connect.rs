@@ -1,6 +1,6 @@
-use nseseq::Node;
-use nseseq::action::Sleep;
-use nseseq::protocol::ip::{
+use nseqe::Node;
+use nseqe::action::Sleep;
+use nseqe::protocol::ip::{
     Bind, Connect, ConnectPredicate, MessagesPredicate, ReceivePredicate, Send, SendMode, Wait,
     WaitEvent,
 };
