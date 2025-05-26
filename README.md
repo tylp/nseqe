@@ -1,9 +1,9 @@
-# NSE
+# NSEQE
 
 [![codecov](https://codecov.io/gh/tylp/nse/graph/badge.svg?token=D7JOUUKVC3)](https://codecov.io/gh/tylp/nse)
 [![Rust](https://github.com/tylp/nse/actions/workflows/rust.yml/badge.svg)](https://github.com/tylp/nse/actions/workflows/rust.yml)
 
-Network Sequence Executor
+Network SEQuence Executor
 
 # About
 NSE is a library that allow users to create a sequence of messages exchange between hosts.
