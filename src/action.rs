@@ -1,9 +1,11 @@
 use crate::node::Ctx;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::event;
 
 /// Action trait defines the interface for actions that can be performed in the system.
 #[async_trait::async_trait]
+#[typetag::serde]
 pub trait Action: Send + Sync {
     fn name(&self) -> String;
     async fn perform(&self, ctx: Ctx) -> Result<(), ActionError>;
@@ -27,7 +29,7 @@ pub enum ActionError {
 }
 
 /// Sleep action represents a delay in the execution of the action sequence.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Sleep {
     duration_ms: u64,
 }
@@ -43,6 +45,7 @@ impl Sleep {
 }
 
 #[async_trait::async_trait]
+#[typetag::serde]
 impl Action for Sleep {
     fn name(&self) -> String {
         "SLEEP".into()

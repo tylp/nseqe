@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 
+use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 use tracing::event;
 
@@ -13,7 +14,7 @@ pub trait Predicate {
     async fn check(&self, ctx: Ctx) -> Result<(), ActionError>;
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct ConnectPredicate {
     pub from: SocketAddr,
     pub to: SocketAddr,
@@ -103,7 +104,7 @@ fn connect_match(
         })
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct MessagesPredicate {
     pub from: SocketAddr,
     pub to: SocketAddr,
@@ -120,7 +121,7 @@ impl MessagesPredicate {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct ReceivePredicate {
     pub messages: Vec<MessagesPredicate>,
 }
@@ -195,13 +196,13 @@ fn receive_exact_match(events: &[&ReceiveEvent], expected_messages: &[MessagesPr
     })
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub enum WaitEvent {
     Connection(ConnectPredicate),
     Messages(ReceivePredicate),
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Wait {
     event: WaitEvent,
 }
@@ -217,6 +218,7 @@ impl Wait {
 }
 
 #[async_trait::async_trait]
+#[typetag::serde]
 impl Action for Wait {
     fn name(&self) -> String {
         "WAIT".into()

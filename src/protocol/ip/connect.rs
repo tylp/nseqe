@@ -2,11 +2,12 @@ use crate::{
     action::{Action, ActionError},
     node::{ConnectEvent, Ctx},
 };
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::net::TcpSocket;
 use tracing::event;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Connect {
     from: std::net::SocketAddr,
     to: std::net::SocketAddr,
@@ -37,6 +38,7 @@ impl Connect {
 }
 
 #[async_trait::async_trait]
+#[typetag::serde]
 impl Action for Connect {
     fn name(&self) -> String {
         "CONNECT".into()

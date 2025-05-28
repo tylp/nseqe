@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, sync::Arc};
 use tokio::net::UdpSocket;
 
@@ -11,7 +12,7 @@ use crate::{
 };
 
 /// Represents a bind action that binds a TCP socket to a specific address.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Bind {
     to: std::net::SocketAddr,
 }
@@ -30,6 +31,7 @@ impl Bind {
 
 /// Binds a TCP socket to the specified address and starts listening for incoming connections.
 #[async_trait::async_trait]
+#[typetag::serde]
 impl Action for Bind {
     fn name(&self) -> String {
         "BIND".into()

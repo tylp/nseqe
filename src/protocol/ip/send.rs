@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 
+use serde::{Deserialize, Serialize};
 use tokio::{io::AsyncWriteExt, net::UdpSocket};
 use tracing::event;
 
@@ -8,13 +9,13 @@ use crate::{
     node::{Ctx, SendEvent},
 };
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub enum SendMode {
     Unicast,
     Broadcast,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Send {
     mode: SendMode,
     from: SocketAddr,
@@ -47,6 +48,7 @@ impl Send {
 }
 
 #[async_trait::async_trait]
+#[typetag::serde]
 impl Action for Send {
     fn name(&self) -> String {
         "SEND".into()
