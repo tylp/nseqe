@@ -6,8 +6,7 @@
 Network SEQuence Executor
 
 # About
-NSE is a library that allow users to create a sequence of messages exchange between hosts.
-Messages are of TCP type and can be described with a custom protocol.
+NSEQE is a library that allow users to create a sequence of messages exchange between hosts.
 
 # Configuration
 

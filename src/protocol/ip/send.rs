@@ -5,7 +5,7 @@ use tokio::{io::AsyncWriteExt, net::UdpSocket};
 use tracing::event;
 
 use crate::{
-    action::Action,
+    action::{Action, ActionError},
     node::{Ctx, SendEvent},
 };
 
@@ -67,59 +67,82 @@ impl Action for Send {
 
         match self.mode {
             SendMode::Unicast => {
-                // Check if a stream is already connected to the destination
-                let ctx = &mut ctx.lock().await;
-                let streams = &mut ctx.tcp_streams;
-                if let Some(stream) = streams.get_mut(&self.to) {
-                    // Send the data
-                    if let Err(e) = stream.write_all(&self.buffer).await {
-                        event!(
-                            tracing::Level::ERROR,
-                            "Error sending data to {}: {}",
-                            self.to,
-                            e
-                        );
-                    } else {
-                        ctx.send_events.push(SendEvent {
-                            instant: tokio::time::Instant::now(),
-                            from: self.from,
-                            to: self.to,
-                            buffer: self.buffer.clone(),
-                        });
-                        event!(tracing::Level::INFO, "Data sent to {}", self.to);
-                    }
-                } else {
-                    event!(tracing::Level::ERROR, "No stream connected to {}", self.to);
-                }
+                perform_unicast(ctx, &self.to, &self.from, &self.buffer).await?;
             }
             SendMode::Broadcast => {
-                let socket: UdpSocket = UdpSocket::bind(self.from).await.map_err(|_| {
-                    crate::action::ActionError::SendError("Failed to bind udp socket".into())
-                })?;
-
-                socket.set_broadcast(true).map_err(|_| {
-                    crate::action::ActionError::SendError("Failed to set broadcast".into())
-                })?;
-
-                socket.send_to(self.buffer(), self.to).await.map_err(|e| {
-                    event!(
-                        tracing::Level::ERROR,
-                        "Error sending broadcast data to {}: {}",
-                        self.to,
-                        e
-                    );
-                    crate::action::ActionError::SendError(e.to_string())
-                })?;
-
-                ctx.lock().await.send_events.push(SendEvent {
-                    instant: tokio::time::Instant::now(),
-                    from: self.from,
-                    to: self.to,
-                    buffer: self.buffer.clone(),
-                });
+                perform_broadcast(ctx, &self.to, &self.from, &self.buffer).await?;
             }
         }
 
         Ok(())
     }
+}
+
+async fn perform_broadcast(
+    ctx: Ctx,
+    to: &SocketAddr,
+    from: &SocketAddr,
+    buffer: &[u8],
+) -> Result<(), ActionError> {
+    let socket: UdpSocket = UdpSocket::bind(from)
+        .await
+        .map_err(|_| crate::action::ActionError::SendError("Failed to bind udp socket".into()))?;
+
+    socket
+        .set_broadcast(true)
+        .map_err(|_| crate::action::ActionError::SendError("Failed to set broadcast".into()))?;
+
+    socket.send_to(buffer, to).await.map_err(|e| {
+        event!(
+            tracing::Level::ERROR,
+            "Error sending broadcast data to {}: {}",
+            to,
+            e
+        );
+        crate::action::ActionError::SendError(e.to_string())
+    })?;
+
+    ctx.lock().await.send_events.push(SendEvent {
+        instant: tokio::time::Instant::now(),
+        from: *from,
+        to: *to,
+        buffer: Vec::from(buffer),
+    });
+
+    Ok(())
+}
+
+async fn perform_unicast(
+    ctx: Ctx,
+    to: &SocketAddr,
+    from: &SocketAddr,
+    buffer: &[u8],
+) -> Result<(), ActionError> {
+    let ctx = &mut ctx.lock().await;
+    let streams = &mut ctx.tcp_streams;
+
+    let stream = streams.get_mut(to).ok_or_else(|| {
+        event!(tracing::Level::ERROR, "No stream connected to {}", to);
+        ActionError::SendError(format!("No stream connected to {}", to))
+    })?;
+
+    stream.write_all(buffer).await.map_err(|e| {
+        event!(
+            tracing::Level::ERROR,
+            "Error writing to stream {}: {}",
+            to,
+            e
+        );
+        ActionError::SendError(e.to_string())
+    })?;
+
+    ctx.send_events.push(SendEvent {
+        instant: tokio::time::Instant::now(),
+        from: *from,
+        to: *to,
+        buffer: Vec::from(buffer),
+    });
+    event!(tracing::Level::INFO, "Data sent to {}", to);
+
+    Ok(())
 }
